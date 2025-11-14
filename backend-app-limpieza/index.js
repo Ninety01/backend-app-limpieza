@@ -14,7 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, function () {
-  console.log("CONECTADO AL PUERTO: " + PORT);
+  console.log("CONECTADO AL PUERTO:" + PORT);
 });
 
 const bbdd = "app-limpieza";
@@ -24,17 +24,22 @@ const url =
   bbdd +
   "?retryWrites=true&w=majority&appName=Cluster0";
 
-mongoose
-  .connect(url)
-  .then(() => console.log("CONECTADO A LA BASE DE DATOS"))
-  .catch((err) => console.log("Error en la conexión " + err));
+const connection = mongoose.connect(url);
+
+connection
+  .then(function () {
+    console.log("CONECTADO A LA BASE DE DATOS");
+  })
+  .catch(function (error) {
+    console.log("Error en la conexión " + error);
+  });
 
 require("./assets/models/empleadas.js");
 const Empleadas = mongoose.model("empleadas");
 
-const JWT_SECRET = "mi_clave_super_secreta";
+const JWT_SECRET = "clave_super_secreta_cambiala_luego";
 
-app.get("/", (req, res) => {
+app.get("/", function (req, res) {
   res.send("API de backend funcionando");
 });
 
@@ -47,52 +52,45 @@ app.post("/registro", async function (req, res) {
       tipoDocumento,
       telefono,
       correo,
-      contrasena
+      contrasena,
     } = req.body;
 
-    const existente = await Empleadas.findOne({ correo });
-    if (existente) {
+    const existe = await Empleadas.findOne({ correo });
+    if (existe) {
       return res.send({
         status: false,
-        message: "Ya existe una cuenta registrada con este correo"
+        message: "El correo ya está registrado",
       });
     }
 
     const hash = await bcrypt.hash(contrasena, 10);
 
-    const empleada = await Empleadas.create({
+    const nueva = await Empleadas.create({
       nombre,
       apellido,
       documento,
       tipoDocumento,
       telefono,
       correo,
-      contrasena: hash
+      contrasena: hash,
     });
 
     const token = jwt.sign(
-      { id: empleada._id, correo: empleada.correo },
-      JWT_SECRET,
-      { expiresIn: "7d" }
+      { id: nueva._id, correo: nueva.correo },
+      JWT_SECRET
     );
 
     res.send({
       status: true,
       message: "Registro exitoso",
       token,
-      datos: {
-        id: empleada._id,
-        nombre: empleada.nombre,
-        apellido: empleada.apellido,
-        correo: empleada.correo,
-        telefono: empleada.telefono
-      }
+      datos: nueva,
     });
   } catch (error) {
     res.send({
       status: false,
-      message: "No se pudo completar el registro",
-      error: error.message
+      message: "Error en el registro",
+      error: error.message,
     });
   }
 });
@@ -102,81 +100,78 @@ app.post("/login", async function (req, res) {
     const { correo, contrasena } = req.body;
 
     const empleada = await Empleadas.findOne({ correo });
+
     if (!empleada) {
       return res.send({
         status: false,
-        message: "Correo o contraseña incorrectos"
+        message: "Correo no registrado",
       });
     }
 
-    const coincide = await bcrypt.compare(contrasena, empleada.contrasena);
-    if (!coincide) {
+    const ok = await bcrypt.compare(contrasena, empleada.contrasena);
+    if (!ok) {
       return res.send({
         status: false,
-        message: "Correo o contraseña incorrectos"
+        message: "Contraseña incorrecta",
       });
     }
 
     const token = jwt.sign(
       { id: empleada._id, correo: empleada.correo },
-      JWT_SECRET,
-      { expiresIn: "7d" }
+      JWT_SECRET
     );
 
     res.send({
       status: true,
       message: "Inicio de sesión exitoso",
       token,
-      datos: {
-        id: empleada._id,
-        nombre: empleada.nombre,
-        apellido: empleada.apellido,
-        correo: empleada.correo,
-        telefono: empleada.telefono
-      }
+      datos: empleada,
     });
   } catch (error) {
     res.send({
       status: false,
-      message: "No se pudo iniciar sesión",
-      error: error.message
+      message: "Error en el inicio de sesión",
+      error: error.message,
     });
   }
 });
 
-app.post("/subir", function (req, res) {
-  const datos = req.body;
-
+app.put("/perfil/:id", async function (req, res) {
   try {
-    Empleadas.create(datos);
+    const { id } = req.params;
+    const { nombre, correo, telefono, localidad, direccion } = req.body;
+
+    const datosActualizados = {
+      nombre,
+      correo,
+      telefono,
+      zona: localidad, 
+      notas: direccion, 
+    };
+
+    const empleada = await Empleadas.findByIdAndUpdate(
+      id,
+      datosActualizados,
+      { new: true }
+    );
+
+    if (!empleada) {
+      return res.send({
+        status: false,
+        message: "No se encontró la empleada",
+      });
+    }
 
     res.send({
       status: true,
-      message: "Datos de la empleada enviados correctamente"
+      message: "Perfil actualizado correctamente",
+      datos: empleada,
     });
   } catch (error) {
     res.send({
       status: false,
-      message: "No se logró enviar los datos de la empleada",
-      error: error.message
-    });
-  }
-});
-
-app.get("/recibir", async function (req, res) {
-  try {
-    const empleada = await Empleadas.find({}).sort({ _id: -1 });
-
-    res.send({
-      status: true,
-      message: "Datos de la empleada recibidos correctamente",
-      datos: empleada
-    });
-  } catch (error) {
-    res.send({
-      status: false,
-      message: "No se logró recibir los datos de la empleada",
-      error: error.message
+      message: "Error al actualizar el perfil",
+      error: error.message,
     });
   }
 });
